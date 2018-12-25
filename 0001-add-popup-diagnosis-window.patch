@@ -1,0 +1,140 @@
+From e123a637c985e9bc7b8a1cf461429a6d0ba71386 Mon Sep 17 00:00:00 2001
+From: Alexandr Savca <alexandr.savca89@gmail.com>
+Date: Wed, 26 Dec 2018 00:30:11 +0200
+Subject: [PATCH 1/2] add popup diagnosis window
+
+If the mouse cursor enters in the status indicator,
+the diagnosis window appears in the center of the display,
+which shows both AC line status and battery remaining level.
+This diagnosis window disappears if the mouse cursor leaves from
+the status indicator.
+---
+ config.def.h  |  5 ++++
+ xbattbar-se.c | 72 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 77 insertions(+)
+
+diff --git a/config.def.h b/config.def.h
+index 89a1859..b94beae 100644
+--- a/config.def.h
++++ b/config.def.h
+@@ -30,6 +30,11 @@ static int always_on_top = True;
+ #define BattNow		"/sys/class/power_supply/BAT0/energy_now"
+ #define PowerState	"/sys/class/power_supply/ADP1/online"
+ 
++/* Battery status dialog appearance */
++#define DefaultFont     "fixed"
++#define DiagXMergin     20      /* width */
++#define DiagYMergin     5       /* height */
++
+ /* vim: set cc=80 : sw=8 : ts=8 : et
+  * End of file
+  * */
+diff --git a/xbattbar-se.c b/xbattbar-se.c
+index f522224..ae740a6 100644
+--- a/xbattbar-se.c
++++ b/xbattbar-se.c
+@@ -67,8 +67,10 @@ static int bi_y;			/* y coordinate of upper left corner */
+ 
+ static Display *disp;
+ static Window winbar;			/* bar indicator window */
++static Window winstat = -1;
+ 
+ static GC gcbar;
++static GC gcstat;
+ static unsigned int width, height;
+ static XEvent theEvent;
+ 
+@@ -81,6 +83,8 @@ static void battery_check(void);
+ static void plug_proc(int left);
+ static void battery_proc(int left);
+ static void redraw(void);
++static void showdiagbox(void);
++static void disposediagbox(void);
+ static void about_this_program(void);
+ static void estimate_remain(void);
+ static void die(const char *errstr, ...);
+@@ -218,6 +222,64 @@ void redraw(void)
+ 	estimate_remain();
+ }
+ 
++void showdiagbox(void)
++{
++	int                   pixw, pixh;
++	int                   boxw, boxh;
++	char                  diagmsg[64];
++	XSetWindowAttributes  att;
++	XFontStruct          *fontp;
++	XGCValues             theGC;
++
++	/* compose diag message and calculate its size in pixels */
++	sprintf(diagmsg,
++		"AC %s-line: battery level is %d%%",
++		ac_line ? "on" : "off",
++		battery_level);
++
++	fontp = XLoadQueryFont(disp, DefaultFont);
++	pixw  = XTextWidth(fontp, diagmsg, strlen(diagmsg));
++	pixh  = fontp->ascent + fontp->descent;
++	boxw  = pixw + DiagXMergin * 2;
++	boxh  = pixh + DiagYMergin * 2;
++
++	/* create status window */
++	if (winstat != -1)
++		disposediagbox();
++
++	winstat = XCreateSimpleWindow(disp,
++				DefaultRootWindow(disp),
++				(width-boxw)/2,
++				(height-boxh)/2,
++				boxw,
++				boxh,
++				2,
++				BlackPixel(disp, 0),
++				WhitePixel(disp, 0));
++
++	/* make this window without time titlebar */
++	att.override_redirect = True;
++	XChangeWindowAttributes(disp, winstat, CWOverrideRedirect, &att);
++	XMapWindow(disp, winstat);
++	theGC.font = fontp->fid;
++	gcstat = XCreateGC(disp, winstat, GCFont, &theGC);
++	XDrawString(disp,
++		winstat,
++		gcstat,
++		DiagXMergin,
++		fontp->ascent+DiagYMergin,
++		diagmsg,
++		strlen(diagmsg));
++}
++
++void disposediagbox(void)
++{
++	if (winstat != -1) {
++		XDestroyWindow(disp, winstat);
++		winstat = -1;
++	}
++}
++
+ void battery_proc(int left)
+ {
+ 	int pos;
+@@ -384,6 +446,16 @@ int main(int argc, char **argv)
+ 				XRaiseWindow(disp, winbar);
+ 			break;
+ 
++		case EnterNotify:
++			/* create battery status message */
++			showdiagbox();
++			break;
++
++		case LeaveNotify:
++			/* destroy status window */
++			disposediagbox();
++			break;
++
+ 		default:
+ 			/* for debugging */
+ 			fprintf(stderr,
+-- 
+2.20.1
+

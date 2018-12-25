@@ -1,0 +1,115 @@
+From c582321992493f712d18100a7ea4559f8956c907 Mon Sep 17 00:00:00 2001
+From: Alexandr Savca <alexandr.savca89@gmail.com>
+Date: Thu, 27 Dec 2018 21:29:58 +0200
+Subject: [PATCH 2/2] add libnotify support
+
+---
+ config.def.h  | 10 ++++++++++
+ config.mk     |  4 ++--
+ xbattbar-se.c | 33 +++++++++++++++++++++++++++++++++
+ 3 files changed, 45 insertions(+), 2 deletions(-)
+
+diff --git a/config.def.h b/config.def.h
+index b94beae..1a4023e 100644
+--- a/config.def.h
++++ b/config.def.h
+@@ -35,6 +35,16 @@ static int always_on_top = True;
+ #define DiagXMergin     20      /* width */
+ #define DiagYMergin     5       /* height */
+ 
++/* notify when battery percent is less or equal */
++#define NOTIFY_LEVEL    10
++
++/* notification delay in seconds */
++#define NOTIFY_DELAY    4
++
++/* notification icon */
++#define NOTIFY_ICON     \
++        "/usr/share/icons/HighContrast/256x256/status/battery-low.png"
++
+ /* vim: set cc=80 : sw=8 : ts=8 : et
+  * End of file
+  * */
+diff --git a/config.mk b/config.mk
+index 28badd6..0de4260 100644
+--- a/config.mk
++++ b/config.mk
+@@ -9,8 +9,8 @@ PREFIX = /usr/local
+ MANPREFIX = ${PREFIX}/share/man
+ 
+ # includes and libs
+-INCS =	$(shell pkg-config --cflags x11)
+-LIBS =	$(shell pkg-config --libs x11)
++INCS =	$(shell pkg-config --cflags x11 libnotify)
++LIBS =	$(shell pkg-config --libs x11 libnotify)
+ 
+ # flags
+ CFLAGS = -std=c89 -pedantic -Werror -Os ${INCS}
+diff --git a/xbattbar-se.c b/xbattbar-se.c
+index ae740a6..4726d73 100644
+--- a/xbattbar-se.c
++++ b/xbattbar-se.c
+@@ -23,6 +23,7 @@
+ static char *ReleaseVersion = "0.1";
+ 
+ #include <X11/Xlib.h>
++#include <libnotify/notify.h>
+ #include <signal.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+@@ -88,6 +89,7 @@ static void disposediagbox(void);
+ static void about_this_program(void);
+ static void estimate_remain(void);
+ static void die(const char *errstr, ...);
++static void notify(int remain);
+ 
+ /*
+  * Usage of this command
+@@ -351,6 +353,9 @@ void estimate_remain()
+ 		printf("battery remain: %2d hr. %2d min. %2d sec.\n",
+ 			remain / 3600, (remain % 3600) / 60, remain % 60);
+ 
++		if (battery_level <= NOTIFY_LEVEL)
++			notify((remain  % 3600) / 60 /* min. */);
++
+ 		elapsed_time = 0;
+ 		battery_base = battery_level;
+ 		return;
+@@ -409,6 +414,34 @@ void battery_check(void)
+ 	signal(SIGALRM, (__sighandler_t)(battery_check));
+ }
+ 
++void notify(int remain) {
++	char                 message[256];
++	NotifyNotification  *notify;
++	GdkPixbuf           *pixbuf;
++
++	notify_init("xbattbar");
++
++	snprintf(message, 256, "battery remain: %2d min.", remain);
++
++	notify = notify_notification_new("Low Battery Status", message, NULL);
++	if (!notify)
++		return;
++
++	pixbuf = gdk_pixbuf_new_from_file(NOTIFY_ICON, NULL);
++
++	notify_notification_set_urgency(notify, NOTIFY_URGENCY_CRITICAL);
++	notify_notification_set_timeout(notify, NOTIFY_DELAY * 1000);
++	notify_notification_set_image_from_pixbuf(notify, pixbuf);
++
++	if (!notify_notification_show(notify, NULL))
++		goto done;
++
++	sleep(NOTIFY_DELAY);
++done:
++	notify_notification_close(notify, NULL);
++	notify_uninit();
++}
++
+ int main(int argc, char **argv)
+ {
+ 	if (argc == 2 && !strcmp("-v", argv[1]))
+-- 
+2.20.1
+
